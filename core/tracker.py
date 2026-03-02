@@ -26,17 +26,21 @@ class TimeAuditTracker:
         self.last_activity_time = time.time()
         self.idle_time = 0
         self.active_time = 0
+        self.is_idle = False
 
     # -------- Idle Detection --------
 
     def on_activity(self, *args):
         self.last_activity_time = time.time()
+        self.is_idle = False  # Exit idle state on activity
 
     def start_activity_listener(self):
         keyboard.Listener(on_press=self.on_activity).start()
-        mouse.Listener(on_move=self.on_activity,
-                       on_click=self.on_activity,
-                       on_scroll=self.on_activity).start()
+        mouse.Listener(
+            on_move=self.on_activity,
+            on_click=self.on_activity,
+            on_scroll=self.on_activity
+        ).start()
 
     # -------- Window Tracking --------
 
@@ -67,15 +71,27 @@ class TimeAuditTracker:
         print("\nSession started...\n")
         self.running = True
         self.start_time = datetime.now()
-
         self.start_activity_listener()
 
         while self.running:
             now = time.time()
             idle_duration = now - self.last_activity_time
 
+            # --- IDLE STATE ---
             if idle_duration > self.idle_threshold:
                 self.idle_time += self.interval
+
+                # If entering idle for first time, break streak
+                if not self.is_idle:
+                    self.is_idle = True
+
+                    if self.current_streak > self.longest_streak:
+                        self.longest_streak = self.current_streak
+                        self.longest_streak_app = self.last_app
+
+                    self.current_streak = 0
+
+            # --- ACTIVE STATE ---
             else:
                 self.active_time += self.interval
 
@@ -104,6 +120,7 @@ class TimeAuditTracker:
         self.running = False
         self.end_time = datetime.now()
 
+        # Final streak check
         if self.current_streak > self.longest_streak:
             self.longest_streak = self.current_streak
             self.longest_streak_app = self.last_app
@@ -133,16 +150,18 @@ class TimeAuditTracker:
         for app, seconds in sorted_usage:
             print(f"{app}: {self.format_time(seconds)}")
 
-        duration_minutes = total_seconds / 60 if total_seconds > 0 else 1
-        switch_rate = self.switch_count / duration_minutes
+        active_minutes = self.active_time / 60 if self.active_time > 0 else 1
+        switch_rate = self.switch_count / active_minutes
 
         print("\n----- Behavioral Metrics -----")
         print(f"Total App Switches: {self.switch_count}")
-        print(f"Switch Rate: {round(switch_rate, 2)} per minute")
+        print(f"Switch Rate: {round(switch_rate, 2)} per active minute")
 
         if self.longest_streak_app:
-            print(f"Longest Focus Streak: {self.format_time(self.longest_streak)} "
-                  f"({self.longest_streak_app})")
+            print(
+                f"Longest Focus Streak: {self.format_time(self.longest_streak)} "
+                f"({self.longest_streak_app})"
+            )
 
         print("=============================\n")
 
