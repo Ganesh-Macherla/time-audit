@@ -1,23 +1,44 @@
-
 import time
 import pygetwindow as gw
 from collections import defaultdict
 from datetime import datetime
+from pynput import keyboard, mouse
 
 
 class TimeAuditTracker:
-    def __init__(self, interval=1):
+    def __init__(self, interval=1, idle_threshold=10):
         self.interval = interval
+        self.idle_threshold = idle_threshold
         self.running = False
+
         self.app_usage = defaultdict(int)
         self.start_time = None
         self.end_time = None
 
-        # NEW BEHAVIOR VARIABLES
+        # Behavior tracking
         self.last_app = None
         self.switch_count = 0
         self.current_streak = 0
         self.longest_streak = 0
+        self.longest_streak_app = None
+
+        # Idle tracking
+        self.last_activity_time = time.time()
+        self.idle_time = 0
+        self.active_time = 0
+
+    # -------- Idle Detection --------
+
+    def on_activity(self, *args):
+        self.last_activity_time = time.time()
+
+    def start_activity_listener(self):
+        keyboard.Listener(on_press=self.on_activity).start()
+        mouse.Listener(on_move=self.on_activity,
+                       on_click=self.on_activity,
+                       on_scroll=self.on_activity).start()
+
+    # -------- Window Tracking --------
 
     def get_active_window_title(self):
         try:
@@ -40,31 +61,42 @@ class TimeAuditTracker:
 
         return window_title.strip()
 
+    # -------- Session Control --------
+
     def start(self):
         print("\nSession started...\n")
         self.running = True
         self.start_time = datetime.now()
 
+        self.start_activity_listener()
+
         while self.running:
-            title = self.get_active_window_title()
-            app_name = self.extract_app_name(title)
+            now = time.time()
+            idle_duration = now - self.last_activity_time
 
-            if app_name:
-                self.app_usage[app_name] += self.interval
+            if idle_duration > self.idle_threshold:
+                self.idle_time += self.interval
+            else:
+                self.active_time += self.interval
 
-                # Behavior detection
-                if app_name != self.last_app:
-                    if self.last_app is not None:
-                        self.switch_count += 1
+                title = self.get_active_window_title()
+                app_name = self.extract_app_name(title)
 
-                        # Update longest streak
-                        if self.current_streak > self.longest_streak:
-                            self.longest_streak = self.current_streak
+                if app_name:
+                    self.app_usage[app_name] += self.interval
 
-                        self.current_streak = 0
+                    if app_name != self.last_app:
+                        if self.last_app is not None:
+                            self.switch_count += 1
 
-                self.current_streak += self.interval
-                self.last_app = app_name
+                            if self.current_streak > self.longest_streak:
+                                self.longest_streak = self.current_streak
+                                self.longest_streak_app = self.last_app
+
+                            self.current_streak = 0
+
+                    self.current_streak += self.interval
+                    self.last_app = app_name
 
             time.sleep(self.interval)
 
@@ -72,48 +104,51 @@ class TimeAuditTracker:
         self.running = False
         self.end_time = datetime.now()
 
-        # Final streak check
         if self.current_streak > self.longest_streak:
             self.longest_streak = self.current_streak
+            self.longest_streak_app = self.last_app
 
         self.generate_report()
 
+    # -------- Reporting --------
+
+    def format_time(self, seconds):
+        hours = seconds // 3600
+        minutes = (seconds % 3600) // 60
+        remaining_seconds = seconds % 60
+        return f"{hours} hr {minutes} min {remaining_seconds} sec"
+
     def generate_report(self):
-        total_seconds = sum(self.app_usage.values())
+        total_seconds = self.active_time + self.idle_time
 
         print("\n===== TIME AUDIT REPORT =====")
         print(f"Start Time: {self.start_time}")
         print(f"End Time: {self.end_time}")
-
-        total_hours = total_seconds // 3600
-        total_minutes = (total_seconds % 3600) // 60
-        total_remaining_seconds = total_seconds % 60
-
-        print(f"Total Duration: {total_hours} hr {total_minutes} min {total_remaining_seconds} sec\n")
+        print(f"Total Duration: {self.format_time(total_seconds)}")
+        print(f"Active Time: {self.format_time(self.active_time)}")
+        print(f"Idle Time: {self.format_time(self.idle_time)}\n")
 
         sorted_usage = sorted(self.app_usage.items(), key=lambda x: x[1], reverse=True)
 
         for app, seconds in sorted_usage:
-            hours = seconds // 3600
-            minutes = (seconds % 3600) // 60
-            remaining_seconds = seconds % 60
+            print(f"{app}: {self.format_time(seconds)}")
 
-            print(f"{app}: {hours} hr {minutes} min {remaining_seconds} sec")
+        duration_minutes = total_seconds / 60 if total_seconds > 0 else 1
+        switch_rate = self.switch_count / duration_minutes
 
         print("\n----- Behavioral Metrics -----")
         print(f"Total App Switches: {self.switch_count}")
+        print(f"Switch Rate: {round(switch_rate, 2)} per minute")
 
-        streak_hours = self.longest_streak // 3600
-        streak_minutes = (self.longest_streak % 3600) // 60
-        streak_seconds = self.longest_streak % 60
-
-        print(f"Longest Focus Streak: {streak_hours} hr {streak_minutes} min {streak_seconds} sec")
+        if self.longest_streak_app:
+            print(f"Longest Focus Streak: {self.format_time(self.longest_streak)} "
+                  f"({self.longest_streak_app})")
 
         print("=============================\n")
 
 
 if __name__ == "__main__":
-    tracker = TimeAuditTracker(interval=1)
+    tracker = TimeAuditTracker(interval=1, idle_threshold=10)
 
     input("Press ENTER to start tracking...")
     try:
