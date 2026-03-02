@@ -28,6 +28,10 @@ class TimeAuditTracker:
         self.active_time = 0
         self.is_idle = False
 
+        # Listener storage (CLEAN FIX)
+        self.keyboard_listener = None
+        self.mouse_listener = None
+
     # -------- Idle Detection --------
 
     def on_activity(self, *args):
@@ -35,12 +39,18 @@ class TimeAuditTracker:
         self.is_idle = False  # Exit idle state on activity
 
     def start_activity_listener(self):
-        keyboard.Listener(on_press=self.on_activity).start()
-        mouse.Listener(
+        self.keyboard_listener = keyboard.Listener(
+            on_press=self.on_activity
+        )
+
+        self.mouse_listener = mouse.Listener(
             on_move=self.on_activity,
             on_click=self.on_activity,
             on_scroll=self.on_activity
-        ).start()
+        )
+
+        self.keyboard_listener.start()
+        self.mouse_listener.start()
 
     # -------- Window Tracking --------
 
@@ -77,21 +87,21 @@ class TimeAuditTracker:
             now = time.time()
             idle_duration = now - self.last_activity_time
 
-            # --- IDLE STATE ---
+            # -------- IDLE STATE --------
             if idle_duration > self.idle_threshold:
                 self.idle_time += self.interval
 
-                # If entering idle for first time, break streak
                 if not self.is_idle:
                     self.is_idle = True
 
+                    # Break streak on entering idle
                     if self.current_streak > self.longest_streak:
                         self.longest_streak = self.current_streak
                         self.longest_streak_app = self.last_app
 
                     self.current_streak = 0
 
-            # --- ACTIVE STATE ---
+            # -------- ACTIVE STATE --------
             else:
                 self.active_time += self.interval
 
@@ -125,6 +135,12 @@ class TimeAuditTracker:
             self.longest_streak = self.current_streak
             self.longest_streak_app = self.last_app
 
+        # Cleanly stop listeners (CLEAN FIX)
+        if self.keyboard_listener:
+            self.keyboard_listener.stop()
+        if self.mouse_listener:
+            self.mouse_listener.stop()
+
         self.generate_report()
 
     # -------- Reporting --------
@@ -145,11 +161,16 @@ class TimeAuditTracker:
         print(f"Active Time: {self.format_time(self.active_time)}")
         print(f"Idle Time: {self.format_time(self.idle_time)}\n")
 
-        sorted_usage = sorted(self.app_usage.items(), key=lambda x: x[1], reverse=True)
+        sorted_usage = sorted(
+            self.app_usage.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
 
         for app, seconds in sorted_usage:
             print(f"{app}: {self.format_time(seconds)}")
 
+        # Switch rate uses ACTIVE time only
         active_minutes = self.active_time / 60 if self.active_time > 0 else 1
         switch_rate = self.switch_count / active_minutes
 
