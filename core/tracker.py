@@ -1,3 +1,4 @@
+
 import time
 import pygetwindow as gw
 from collections import defaultdict
@@ -12,6 +13,12 @@ class TimeAuditTracker:
         self.start_time = None
         self.end_time = None
 
+        # NEW BEHAVIOR VARIABLES
+        self.last_app = None
+        self.switch_count = 0
+        self.current_streak = 0
+        self.longest_streak = 0
+
     def get_active_window_title(self):
         try:
             window = gw.getActiveWindow()
@@ -25,11 +32,9 @@ class TimeAuditTracker:
         if not window_title:
             return "Unknown"
 
-        # Handle em dash (—)
         if "—" in window_title:
             return window_title.split("—")[-1].strip()
 
-        # Handle normal dash (-)
         if "-" in window_title:
             return window_title.split("-")[-1].strip()
 
@@ -47,11 +52,30 @@ class TimeAuditTracker:
             if app_name:
                 self.app_usage[app_name] += self.interval
 
+                # Behavior detection
+                if app_name != self.last_app:
+                    if self.last_app is not None:
+                        self.switch_count += 1
+
+                        # Update longest streak
+                        if self.current_streak > self.longest_streak:
+                            self.longest_streak = self.current_streak
+
+                        self.current_streak = 0
+
+                self.current_streak += self.interval
+                self.last_app = app_name
+
             time.sleep(self.interval)
 
     def stop(self):
         self.running = False
         self.end_time = datetime.now()
+
+        # Final streak check
+        if self.current_streak > self.longest_streak:
+            self.longest_streak = self.current_streak
+
         self.generate_report()
 
     def generate_report(self):
@@ -76,6 +100,15 @@ class TimeAuditTracker:
 
             print(f"{app}: {hours} hr {minutes} min {remaining_seconds} sec")
 
+        print("\n----- Behavioral Metrics -----")
+        print(f"Total App Switches: {self.switch_count}")
+
+        streak_hours = self.longest_streak // 3600
+        streak_minutes = (self.longest_streak % 3600) // 60
+        streak_seconds = self.longest_streak % 60
+
+        print(f"Longest Focus Streak: {streak_hours} hr {streak_minutes} min {streak_seconds} sec")
+
         print("=============================\n")
 
 
@@ -86,5 +119,4 @@ if __name__ == "__main__":
     try:
         tracker.start()
     except KeyboardInterrupt:
-
         tracker.stop()
